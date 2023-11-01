@@ -1,0 +1,318 @@
+---
+title: "Relationship Between Carbon Dioxide Emissions and Human Happiness"
+editor: visual
+authors: 'Regan Hallead, Emily Hoeft, Will Kapner, Brian Legal'
+format: 
+  html:
+    self-contained: true
+    code-tools: true
+    toc: true
+execute: 
+  error: true
+  echo: false
+  message: false
+  warning: false
+---
+
+## Background:
+
+Happiness in nations is measured as the average answer when asking people how much they enjoy their life on a scale from zero to ten (or similar). It has been found that the largest contributor of happiness is genetics. Circumstances and actions that people choose to take are also large contributors of happiness (Zidanšek, 2007). Environmental quality greatly impacts human psychology and happiness. New research has determined that extreme climate events and natural hazards, which are becoming more and more common with climate change, may be very important determinants of human happiness. Environmental degradation poses a risk to human physical and mental health. Carbon dioxide emissions are a major factor in environmental degradation (Apergis and Majeed, 2021). Because environmental health may be an increasingly important factor in overall happiness, we are choosing to investigate the relationship between carbon dioxide emissions and human happiness score using data from Gapminder.
+
+## Hypotheses:
+
+We think that more consumption of goods will lead people to live a less fulfilled life. In life, things are not the things that truly matter, but people and relationships instead lead us to live happier lives. Therefore, higher $CO_2$ emissions per capita will be associated with a lower happiness score.
+
+## Description of Data:
+
+Our data is from two data sets from Gapminder. The first data set is the Happiness Score of 163 countries from 2005 to 2022. Each data cell includes data from a sample of people who were asked to rate their life on a scale from 0-10 with 0 being the worst possible life and 10 being the best possible life. Gapminder then converted this data to a scale from 0-100 for easier analysis.
+
+The second set we used is the Consumption $CO_2$ per Capita from fossil fuel consumption, cement production, and gas flaring. Each data cell includes values measured in metric tons per person, throughout 119 countries and from the years 1990 to 2017. The fact that the values are per person is very helpful because we can compare happiness scores to metric tons per person of $CO_2$ emissions easily.
+
+## Data Cleaning Methods:
+
+The data from gapminder was recorded in a CSV file, with the years as the columns and the countries as the rows. We wanted to join the data together in one table so that we could use it for further analysis down the line. In order to join the data, we had to pivot the data as a pivot longer so that the years are put next to the countries for each entry. After doing that, we were able to successfully join the data together. Our current data has some years that don't overlap with each other, since the happiness scores span from 2005 to 2022, while emissions data was collected between 1990 and 2017. We decided to keep the NA's in the join for the data that doesn't have a year associated with the other data. For example, happiness data from 1990 is marked as NA since it was not recorded at the time. We plan on using the years that overlapped within our two data sets for our analysis.
+
+```{r setup}
+library(tidyverse)
+library(broom)
+library(gganimate)
+library(kableExtra)
+
+happiness = read_csv("hapiscore_whr.csv")
+consumption = read_csv("consumption_emissions_tonnes_per_person.csv")
+```
+
+```{r pivots}
+#pivoting the data to be able to join it together
+
+#happiness data pivot
+happiness_pivot <- happiness |> 
+  pivot_longer(
+    cols = `2005`:`2022`,
+    names_to = 'year',
+    values_to = 'happiness')
+
+#consumption data pivot
+consumption_pivot <- consumption |> 
+  pivot_longer(
+    cols = `1990`:`2017`,
+    names_to = 'year',
+    values_to = 'consumption')
+```
+
+```{r joins}
+#joining the data by year and country
+data <- left_join(happiness_pivot,consumption_pivot, 
+                            join_by(country, year))
+
+data_no_na <- data |> 
+  na.omit()
+```
+
+```{r data averaging}
+#averaging the data grouping by country
+country_averaged <- data_no_na |> 
+  group_by(country) |> 
+  summarise('avg_happy' = mean(happiness), 'avg_consumption' = mean(consumption))
+```
+
+## Happiness and Consumption Over Time:
+
+```{r year averaging}
+#creating average data grouped by year
+year_averages = data_no_na|>
+  group_by(year)|>
+  summarise("happiness" = mean(happiness), "consumption" = mean(consumption))
+```
+
+```{r graph}
+#| layout-nrow: 1
+#plotting the changes in happiness and consumption by year
+year_averages|>
+  ggplot(aes(x = year, y = happiness, group=1))+
+  geom_point()+
+  geom_line() +
+  labs(title = "Happiness over Time",
+       subtitle = "Happiness Score",
+       y = "", 
+       x = "Year")
+
+year_averages |>
+  ggplot(aes(x=year, y=consumption, group=1))+
+  geom_point()+
+  geom_line() +
+  labs(title = "Consumption over Time",
+       subtitle = "Consumption (Metric Tons per Capita)",
+       y = "", 
+       x = "Year")
+```
+
+```{r standardization function}
+
+standarization <- function(var){
+  stopifnot(is.numeric(var))
+  result <- (var - min(var))/
+    (max(var) - min(var))
+
+  
+  return(result)
+}
+
+std_data <- function(data, vars){
+  stopifnot(is.data.frame(data))
+  
+  result <- data |> 
+    mutate(across({{vars}}, standarization))
+  return(result)
+}
+#https://zoerehnberg.github.io/STAT331-S23/lecture_slides/W7_functions/W7_functions.html#/function-to-standardize-data
+#https://zoerehnberg.github.io/STAT331-S23/lecture_slides/W7_functions/W7_functions.html#/inject-multiple-variables
+```
+
+```{r data standarizing}
+std_year_avg <- std_data(year_averages, happiness:consumption)
+```
+
+```{r cool animated graph}
+
+std_year_pivot <- std_year_avg |> 
+    mutate(year = as.integer(year)) |> 
+    pivot_longer(happiness:consumption,
+                 names_to = 'type',
+                 values_to = 'value')
+
+
+std_animate_plot <- std_year_pivot |> 
+  ggplot(aes(x = year, y = value, color = type))+
+  geom_line(linewidth = 3)+
+  transition_reveal(year)+
+  xlab('Year')+
+  ylab('')+
+  labs(color = 'Variables',
+       title = 'Change of Consumption and Happiness Over Time',
+       subtitle = "Overall Change")+
+  scale_color_discrete(labels=c('Consumption', 'Happiness'))+
+  #scale_x_discrete(limits= year)
+  xlim(2004, 2018)
+  
+
+animate(std_animate_plot)
+```
+
+Visually, it looks like happiness and consumption over time have similar trends. In the graphs, they rise and fall at similar years. From this graph, we are predicting that there could be a strong correlation between happiness and consumption over time.
+
+For the animated graph at the end, we standardized the data in order to compare how each variable has changes over the span of our data relative to each other. We were able to do this by removing the units from the data by taking each data point and subtracting it by the min and dividing that by the max subtracting the min. This allows us to compare consumption and happiness together. While the other two graphs above it show their respective units.
+
+## Linear Regression:
+
+```{r linear regression}
+#using the country averaged data to create a linear model predicting the relationship between consumption and happiness
+model = lm(avg_happy~avg_consumption,data = country_averaged)
+model|>
+  ggplot(aes(x=avg_consumption,y=avg_happy))+
+  geom_jitter()+
+  geom_smooth(method = lm) +
+  labs(title = "Linear Regression of Consumption and Happiness",
+       subtitle = "Happiness Score",
+       y = "", 
+       x = "Consumption (Metric Tons per Capita)")
+```
+
+For our linear regression graph, the response variable is Happiness Level and the explanatory variable is the $CO_2$ Consumption per capita. We ended up only using one plot point per country, using the average of the data for each country. When we used linear regression, it produced a line of best fit for our data we graphed. The estimated regression model was found to be:
+
+$$
+\hat{y} = 49.6096 + 0.9858x
+$$ In this model, $\hat{y}$ is predicted happiness, and x is $CO_2$ consumption (in metric tons) per capita. For a country with zero emissions per person, the predicted happiness score is 49.6096. For each one metric ton increase in $CO_2$ consumption per capita, the predicted happiness score increases by 0.9858.
+
+Overall, there appears to be a weak positive correlation between $CO_2$ consumption and happiness score. However, after a $CO_2$ consumption of about 15 metric tons per person, the happiness score appears to level off rather than continue to increase.
+
+```{r animated graph}
+
+plot <- data_no_na |> 
+  mutate(year = as.integer(year)) |> 
+  ggplot(aes(x = consumption, y = happiness, color = country))+
+  #geom_point(alpha = .7, show.legend = FALSE)+
+  geom_text(size = 2.5, check_overlap = TRUE,show.legend = FALSE, aes(label = country))+
+  scale_fill_viridis_d(option='plasma')+
+  labs(title = 'Consumption vs Happiness for each country in {frame_time}',
+       subtitle = 'Happiness Score',
+       y = '',
+       x = 'Consumption (Metric tons per Capita)')+
+  transition_time(year)+
+  ease_aes('linear')
+
+animate(plot)
+```
+
+The graph above demonstrates the changes each country has in consumption of $CO_2$ and their happiness scores on the happiness scale. This is to see if any particular countries stand out given a single year.
+
+```{r varience}
+#| output: false
+# variance in the response variable (happiness)
+var(country_averaged$avg_happy)
+# variance in the residuals
+var(model$residuals)
+# variance in the fitted values.
+var(model$fitted.values)
+```
+
+In terms of the amount of variation, more of the variation is a product of the residuals than the fitted values. Of the 114.30 total variation from happiness, 68.87 was explained by residuals and 45.43 was explained by fitted values. Therefore, the model is not a great fit for our data. These results may be seen in the table below.
+
+```{r resids}
+residuals <- data.frame(residual_type=c("Variance in Happiness","Variance in Residuals","Variance in Fitted Values"),
+                        value=c("114.30","68.87","45.43"))
+
+kbl(residuals, col.names=c("Residual Type","Variance"), align="c",
+    caption="Variance for response variable, residuals and fitted values in model relating happiness to consumption.")|>
+      row_spec(row=0, color="white", background="black")
+  
+```
+
+```{r simulate}
+#https://www.digitalocean.com/community/tutorials/predict-function-in-r
+set.seed(1000)
+simulatedatay <- predict(model)+rnorm(118, mean = 0,sd=sigma(model))
+newdata = data.frame(country_averaged$avg_consumption, simulatedatay)
+```
+
+## Simulation:
+
+```{r simulated graph}
+#| layout-nrow: 1
+model = lm(avg_happy~avg_consumption,data = country_averaged)
+model|>
+  ggplot(aes(x=avg_consumption,y=avg_happy))+
+  geom_jitter()+
+  geom_smooth(method = lm) +
+  labs(title = "Linear Regression of Consumption and Happiness",
+       subtitle = "Happiness Score",
+       y = "", 
+       x = "Consumption (Metric Tons per Capita)")
+
+
+modelsim = lm(simulatedatay~country_averaged.avg_consumption,data = newdata)
+modelsim|>
+  ggplot(aes(x=country_averaged.avg_consumption ,y=simulatedatay))+
+  geom_jitter()+
+  geom_smooth(method = lm) +
+  labs(title = "Simulated Linear Regression of Consumption and Happiness",
+       subtitle = "Simulated Happiness Score",
+       y = "", 
+       x = "Consumption (Metric Tons per Capita)")
+```
+
+The simulated data is very similar to our observed data. The simulated data is a little more spread out than our observed data. However, for the simulated data, the later years fit much more onto the linear regression line compared to the original observed data. We believe this because it's a linear model and not transformed for the data.
+
+```{r simulations}
+# original model is called "model"
+# simulated model is called "modelsim"
+
+set.seed(1000)
+
+model_predict <- predict(model)
+
+model_sigma <- sigma(model)
+
+noise <- function(x, mean=0, sd){
+  x + rnorm(length(x), 
+            mean,
+            sd)
+}
+
+sim_response <- tibble(sim_happiness=noise(model_predict, sd=model_sigma))
+
+sim_data <- country_averaged|>
+  bind_cols(sim_response)
+
+nsims <- 1000
+
+sims <- map_dfc(.x=1:nsims, .f=~tibble(sim=noise(model_predict, sd=model_sigma)))
+
+sim_r_squared <- sims |>
+  map(~ lm(country_averaged$avg_happy~.x, data=sims)) |>
+  map(glance) |>
+  map_dbl(~ .x$r.squared)
+
+tibble(sims=sim_r_squared) |>
+ggplot(aes(x=sims)) +
+  geom_histogram(binwidth=0.025) +
+  labs(y="", subtitle="Number of Simulated Models",
+       title = "Distribution of 1000 Simulated R Squared Values of a model comparing happiness and CO2 Consumption",x=expression("Simulated"~R^2))
+
+```
+
+Our $R^2$ distribution plot implies that our linear regression model is not the best match for our data. Our $R^2$ value for our model was .397 which tells us that our model was a moderately good fit. This means that 39.7% of the variation in happiness can be explained by consumption of $CO_2$ per capita. The $R^2$ distribution was centered at around 0.17. This indicates that the model does not produce data similar to what was actually observed.
+
+## Conclusion
+
+In conclusion, consumption of $CO_2$  per capita is a contributing factor to a higher happiness score. The increase of $CO_2$ consumption is by no means the only cause of a higher happiness score, but our model shows that it is moderately correlated with more $CO_2$ consumption. This data can be generalized to all 118 countries that were included in our data sets.
+
+## References
+
+Apergis, N., & Majeed, M. T. (2021). Greenhouse gas emissions and cross-national happiness: a global perspective. Air Quality, Atmosphere & Health, 14(8), 1289--1300. https://doi.org/10.1007/s11869-021-01019-5
+
+"Happiness score (WHR)" Gapminder, www.gapminder.org/data/. Accessed 7 June 2023. 
+
+"Consumption $CO_2$ per capita (metric tons per person)" Gapminder, www.gapminder.org/data/. Accessed 7 June 2023.
+
+Zidanšek, A. (2007). Sustainable development and happiness in nations. Energy, 32(6), 891--897. https://doi.org/10.1016/j.energy.2006.09.016
